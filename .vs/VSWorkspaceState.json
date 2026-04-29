@@ -1,0 +1,15 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\src",
+    "\\src\\main",
+    "\\src\\main\\java",
+    "\\src\\main\\java\\ast",
+    "\\src\\main\\java\\interpreter",
+    "\\src\\main\\java\\lexer",
+    "\\src\\main\\java\\parser",
+    "\\src\\main\\java\\semantic",
+    "\\src\\main\\java\\transform"
+  ],
+  "PreviewInSolutionExplorer": false
+}
