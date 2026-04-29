@@ -1,166 +1,204 @@
 import ast.ASTNode;
 import ast.ASTPrinter;
+import interpreter.Interpreter;
+import interpreter.RuntimeErrorJS;
 import lexer.Lexer;
 import lexer.Token;
 import parser.Parser;
+import semantic.AnalysisResult;
+import semantic.SemanticAnalyzer;
+import semantic.SemanticError;
+import semantic.Symbol;
+import transform.AstTransformer;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Scanner;
+import java.util.stream.Stream;
 
 /**
  * Точка входа компилятора MiniJS.
  *
- * Демонстрирует работу:
- * 1. Лексического анализатора (токенизация)
- * 2. Синтаксического анализатора (рекурсивный спуск → AST)
- * 3. Печать AST-дерева в двух форматах
- * 4. Диагностику синтаксических ошибок
+ * Этапы вывода:
+ *   1. Лексический анализ
+ *   2. Синтаксический анализ + AST (LISP / дерево)
+ *   3. Семантический анализ + диагностика + типы
+ *   4. Модификация AST (свёртка констант, мёртвые ветки)
+ *   5. Выполнение (AST-интерпретатор)
  */
 public class Main {
-    public static void main(String[] args) {
 
-        String code = """
-                // Объявление переменных с различными типами
-                let limit = 10;
-                let count = 0;
-                let name = "World";
-                let flag = true;
-                let nothing = null;
-                let arr = [1, 2, 3, 4, 5];
-                let obj = { x: 10, y: 20 };
-                
-                // Цикл while с if/else и операторами mod, div
-                while (count < limit) {
-                    if (count mod 2 == 0) {
-                        console.log("Even");
-                    } else {
-                        console.log("Odd");
-                    }
-                    
-                    let half = count div 2;
-                    count = count + 1;
-                }
-                
-                // Цикл for
-                for (let i = 0; i < 5; i = i + 1) {
-                    if (i == 3) {
-                        break;
-                    }
-                    console.log(i);
-                }
-                
-                // Объявление и вызов функции
-                function add(a, b) {
-                    return a + b;
-                }
-                
-                let result = add(3, 4);
-                console.log(result);
-                
-                // Доступ к элементам массива и объекта
-                let first = arr[0];
-                let xVal = obj.x;
-                
-                // else if
-                if (count == 0) {
-                    console.log("zero");
-                } else if (count == 1) {
-                    console.log("one");
-                } else {
-                    console.log("other");
-                }
+    public static void main(String[] args) throws Exception {
+        String code;
+        String source;
 
-                // Присваивание элементу массива и свойству объекта
-                arr[0] = 99;
-                obj.x = 42;
+        if (args.length > 0) {
+            code = Files.readString(Path.of(args[0]));
+            source = args[0];
+        } else {
+            Path chosen = pickInteractive();
+            if (chosen == null) {
+                code = BUILTIN_PROGRAM;
+                source = "встроенный пример";
+            } else {
+                code = Files.readString(chosen);
+                source = chosen.toString();
+            }
+        }
 
-                // Сложные выражения с приоритетом
-                let complex = 2 + 3 * 4 - 1;
-                let logic = (count > 0) && (flag != false) || !flag;
-                """;
+        banner("MiniJS Compiler — Подмножество JavaScript", "источник: " + source);
 
-        System.out.println("═══════════════════════════════════════════════════");
-        System.out.println("  MiniJS Compiler — Подмножество JavaScript");
-        System.out.println("  1-я аттестация: Лексер + Парсер + AST");
-        System.out.println("═══════════════════════════════════════════════════");
-
-        // ===== 1. Лексический анализ =====
-        System.out.println("\n─── ЭТАП 1: ЛЕКСИЧЕСКИЙ АНАЛИЗ ───\n");
+        // ===== 1. Лексер =====
+        section("ЭТАП 1: ЛЕКСИЧЕСКИЙ АНАЛИЗ");
         Lexer lexer = new Lexer(code);
         List<Token> tokens = lexer.tokenize();
-
-        // Выводим первые N токенов для демонстрации
-        int showTokens = Math.min(tokens.size(), 30);
-        for (int i = 0; i < showTokens; i++) {
-            System.out.println("  " + tokens.get(i));
-        }
-        if (tokens.size() > showTokens) {
-            System.out.println("  ... и ещё " + (tokens.size() - showTokens) + " токенов");
-        }
+        int show = Math.min(tokens.size(), 30);
+        for (int i = 0; i < show; i++) System.out.println("  " + tokens.get(i));
+        if (tokens.size() > show) System.out.println("  ... и ещё " + (tokens.size() - show) + " токенов");
         System.out.println("\n  Всего токенов: " + tokens.size());
-
         if (!lexer.getErrors().isEmpty()) {
             System.out.println("\n  Ошибки лексера:");
-            for (String err : lexer.getErrors()) {
-                System.err.println("  " + err);
-            }
+            for (String err : lexer.getErrors()) System.err.println("  " + err);
+            return;
         }
 
-        // ===== 2. Синтаксический анализ =====
-        System.out.println("\n─── ЭТАП 2: СИНТАКСИЧЕСКИЙ АНАЛИЗ (РЕКУРСИВНЫЙ СПУСК) ───\n");
+        // ===== 2. Парсер =====
+        section("ЭТАП 2: СИНТАКСИЧЕСКИЙ АНАЛИЗ");
         Parser parser = new Parser(tokens);
         ASTNode ast = parser.parseProgram();
-
         if (!parser.getErrors().isEmpty()) {
-            System.out.println("  Ошибки парсера:");
-            for (String err : parser.getErrors()) {
-                System.err.println("  " + err);
-            }
-        } else {
-            System.out.println("  Разбор прошёл успешно, ошибок нет.");
+            for (String err : parser.getErrors()) System.err.println("  " + err);
+            return;
         }
+        System.out.println("  Разбор успешен.");
 
-        // ===== 3. Печать AST =====
-        System.out.println("\n─── ЭТАП 3: AST В LISP-СТИЛЕ ───\n");
+        section("ЭТАП 2A: AST (LISP)");
         System.out.println(ASTPrinter.toLisp(ast));
-
-        System.out.println("\n─── ЭТАП 4: ИЕРАРХИЧЕСКОЕ AST-ДЕРЕВО ───\n");
+        section("ЭТАП 2B: AST (дерево)");
         System.out.println(ASTPrinter.toTree(ast));
 
-        // ===== 4. Демонстрация диагностики ошибок =====
-        System.out.println("═══════════════════════════════════════════════════");
-        System.out.println("  ДЕМОНСТРАЦИЯ ДИАГНОСТИКИ ОШИБОК");
-        System.out.println("═══════════════════════════════════════════════════\n");
-
-        String brokenCode = """
-                let x = 10
-                let y = ;
-                if (x > 0 {
-                    console.log("hello");
-                }
-                let = 5;
-                """;
-
-        System.out.println("  Код с ошибками:");
-        System.out.println("  ───────────────");
-        for (String line : brokenCode.split("\n")) {
-            System.out.println("    " + line);
+        // ===== 3. Семантика =====
+        section("ЭТАП 3: СЕМАНТИЧЕСКИЙ АНАЛИЗ");
+        AnalysisResult res = new SemanticAnalyzer().analyze((ASTNode.Program) ast);
+        if (res.hasErrors()) {
+            System.out.println("  Найдены семантические ошибки:");
+            for (SemanticError e : res.errors()) System.out.println("  " + e);
+            System.out.println("\n  Этапы 4-5 пропущены.");
+            return;
         }
-        System.out.println();
+        System.out.println("  Семантика без ошибок.");
+        printGlobalScope(res);
 
-        Lexer brokenLexer = new Lexer(brokenCode);
-        List<Token> brokenTokens = brokenLexer.tokenize();
-        Parser brokenParser = new Parser(brokenTokens);
-        brokenParser.parseProgram();
+        section("ЭТАП 3A: AST с аннотацией типов");
+        System.out.println(ASTPrinter.toTreeWithTypes(ast, res.typeMap()));
 
-        System.out.println("  Обнаруженные ошибки:");
-        for (String err : brokenLexer.getErrors()) {
-            System.out.println("  " + err);
-        }
-        for (String err : brokenParser.getErrors()) {
-            System.out.println("  " + err);
-        }
-        if (brokenLexer.getErrors().isEmpty() && brokenParser.getErrors().isEmpty()) {
-            System.out.println("  (ошибок не обнаружено)");
+        // ===== 4. Трансформация AST =====
+        section("ЭТАП 4: МОДИФИКАЦИЯ AST (свёртка констант, мёртвые ветки)");
+        ASTNode transformed = AstTransformer.transform(ast);
+        System.out.println(ASTPrinter.toTree(transformed));
+
+        // ===== 5. Выполнение =====
+        section("ЭТАП 5: ВЫПОЛНЕНИЕ");
+        try {
+            new Interpreter().run((ASTNode.Program) transformed);
+        } catch (RuntimeErrorJS e) {
+            System.err.println(e.formatted());
         }
     }
+
+    private static void printGlobalScope(AnalysisResult res) {
+        var syms = res.globalScope().symbols();
+        if (syms.isEmpty()) return;
+        System.out.println("\n  Глобальная таблица символов:");
+        for (Symbol s : syms.values()) {
+            System.out.printf("    %-15s %-10s %s%n", s.name(), s.kind(), s.declaredAt());
+        }
+    }
+
+    private static void banner(String title, String subtitle) {
+        System.out.println("═══════════════════════════════════════════════════");
+        System.out.println("  " + title);
+        System.out.println("  " + subtitle);
+        System.out.println("═══════════════════════════════════════════════════");
+    }
+
+    private static void section(String title) {
+        System.out.println("\n─── " + title + " ───\n");
+    }
+
+    /**
+     * Возвращает выбранный пользователем .js-файл из examples/,
+     * либо null если выбран встроенный пример или ввод некорректен.
+     */
+    private static Path pickInteractive() {
+        List<Path> files = listExamples();
+
+        System.out.println("Выберите программу для запуска:");
+        System.out.println("  0 — встроенный пример");
+        for (int i = 0; i < files.size(); i++) {
+            System.out.printf("  %d — %s%n", i + 1, files.get(i).getFileName());
+        }
+        System.out.print("Номер: ");
+
+        Scanner sc = new Scanner(System.in);
+        if (!sc.hasNextLine()) return null;
+        String line = sc.nextLine().trim();
+
+        int n;
+        try { n = Integer.parseInt(line); }
+        catch (NumberFormatException e) {
+            System.out.println("Не число — запускаю встроенный пример.\n");
+            return null;
+        }
+        if (n == 0) return null;
+        if (n < 1 || n > files.size()) {
+            System.out.println("Нет такого пункта — запускаю встроенный пример.\n");
+            return null;
+        }
+        return files.get(n - 1);
+    }
+
+    private static List<Path> listExamples() {
+        Path dir = Path.of("examples");
+        if (!Files.isDirectory(dir)) return List.of();
+        try (Stream<Path> s = Files.list(dir)) {
+            List<Path> out = new ArrayList<>();
+            s.filter(p -> p.getFileName().toString().endsWith(".js"))
+             .sorted()
+             .forEach(out::add);
+            return out;
+        } catch (java.io.IOException e) {
+            return List.of();
+        }
+    }
+
+    // Встроенный пример программы — запускается, если файл не передан
+    private static final String BUILTIN_PROGRAM = """
+            let limit = 10;
+            let count = 0;
+            let constExpr = 2 + 3 * 4;
+
+            function add(a, b) {
+                return a + b;
+            }
+
+            while (count < limit) {
+                if (count mod 2 == 0) {
+                    console.log("even", count);
+                } else {
+                    console.log("odd", count);
+                }
+                count = count + 1;
+            }
+
+            console.log("sum =", add(constExpr, count));
+
+            if (false) {
+                console.log("этого не будет");
+            } else {
+                console.log("done");
+            }
+            """;
 }

@@ -2,6 +2,8 @@ package ast;
 
 import ast.ASTNode.*;
 
+import java.util.Map;
+
 /**
  * Красивая печать AST-дерева в двух форматах:
  * 1) LISP-стиль: (Program (VarDecl "x" (NumberLiteral 5)))
@@ -157,6 +159,168 @@ public class ASTPrinter {
         StringBuilder sb = new StringBuilder();
         toTree(node, sb, "", true);
         return sb.toString();
+    }
+
+    /**
+     * То же дерево, но с аннотацией статического типа возле выражений:
+     *   BinaryExpr: + : NUMBER
+     * Используется на 2-й аттестации после семантического анализа.
+     */
+    public static String toTreeWithTypes(ASTNode node, Map<ASTNode, ?> typeMap) {
+        StringBuilder sb = new StringBuilder();
+        toTreeAnnotated(node, sb, "", true, typeMap);
+        return sb.toString();
+    }
+
+    private static String typeSuffix(ASTNode n, Map<ASTNode, ?> typeMap) {
+        if (typeMap == null) return "";
+        Object t = typeMap.get(n);
+        return t == null ? "" : "  : " + t;
+    }
+
+    private static void toTreeAnnotated(ASTNode node, StringBuilder sb,
+                                        String prefix, boolean isLast,
+                                        Map<ASTNode, ?> typeMap) {
+        if (node == null) {
+            sb.append(prefix).append(isLast ? "└── " : "├── ").append("<null>\n");
+            return;
+        }
+        String connector = isLast ? "└── " : "├── ";
+        String childPrefix = prefix + (isLast ? "    " : "│   ");
+        String tag = typeSuffix(node, typeMap);
+
+        switch (node) {
+            case Program p -> {
+                sb.append(prefix).append(connector).append("Program\n");
+                printChildrenA(p.statements(), sb, childPrefix, typeMap);
+            }
+            case Block b -> {
+                sb.append(prefix).append(connector).append("Block\n");
+                printChildrenA(b.statements(), sb, childPrefix, typeMap);
+            }
+            case VarDecl v -> {
+                sb.append(prefix).append(connector).append("VarDecl: ").append(v.name()).append("\n");
+                if (v.init() != null) toTreeAnnotated(v.init(), sb, childPrefix, true, typeMap);
+            }
+            case Assignment a -> {
+                sb.append(prefix).append(connector).append("Assign\n");
+                toTreeAnnotated(a.target(), sb, childPrefix, false, typeMap);
+                toTreeAnnotated(a.value(), sb, childPrefix, true, typeMap);
+            }
+            case IfStatement i -> {
+                sb.append(prefix).append(connector).append("If\n");
+                sb.append(childPrefix).append("├── Condition:\n");
+                toTreeAnnotated(i.condition(), sb, childPrefix + "│   ", true, typeMap);
+                if (i.elseBranch() != null) {
+                    sb.append(childPrefix).append("├── Then:\n");
+                    toTreeAnnotated(i.thenBranch(), sb, childPrefix + "│   ", true, typeMap);
+                    sb.append(childPrefix).append("└── Else:\n");
+                    toTreeAnnotated(i.elseBranch(), sb, childPrefix + "    ", true, typeMap);
+                } else {
+                    sb.append(childPrefix).append("└── Then:\n");
+                    toTreeAnnotated(i.thenBranch(), sb, childPrefix + "    ", true, typeMap);
+                }
+            }
+            case WhileStatement w -> {
+                sb.append(prefix).append(connector).append("While\n");
+                sb.append(childPrefix).append("├── Condition:\n");
+                toTreeAnnotated(w.condition(), sb, childPrefix + "│   ", true, typeMap);
+                sb.append(childPrefix).append("└── Body:\n");
+                toTreeAnnotated(w.body(), sb, childPrefix + "    ", true, typeMap);
+            }
+            case ForStatement f -> {
+                sb.append(prefix).append(connector).append("For\n");
+                sb.append(childPrefix).append("├── Init:\n");
+                toTreeAnnotated(f.init(), sb, childPrefix + "│   ", true, typeMap);
+                sb.append(childPrefix).append("├── Condition:\n");
+                toTreeAnnotated(f.condition(), sb, childPrefix + "│   ", true, typeMap);
+                sb.append(childPrefix).append("├── Update:\n");
+                toTreeAnnotated(f.update(), sb, childPrefix + "│   ", true, typeMap);
+                sb.append(childPrefix).append("└── Body:\n");
+                toTreeAnnotated(f.body(), sb, childPrefix + "    ", true, typeMap);
+            }
+            case BreakStatement ignored ->
+                sb.append(prefix).append(connector).append("Break\n");
+            case ContinueStatement ignored ->
+                sb.append(prefix).append(connector).append("Continue\n");
+            case PrintStatement p -> {
+                sb.append(prefix).append(connector).append("Print\n");
+                printChildrenA(p.arguments(), sb, childPrefix, typeMap);
+            }
+            case FunctionDecl f -> {
+                sb.append(prefix).append(connector)
+                  .append("FunctionDecl: ").append(f.name())
+                  .append("(").append(String.join(", ", f.params())).append(")\n");
+                toTreeAnnotated(f.body(), sb, childPrefix, true, typeMap);
+            }
+            case ReturnStatement r -> {
+                sb.append(prefix).append(connector).append("Return\n");
+                if (r.value() != null) toTreeAnnotated(r.value(), sb, childPrefix, true, typeMap);
+            }
+            case ExpressionStatement e -> {
+                sb.append(prefix).append(connector).append("ExprStmt\n");
+                toTreeAnnotated(e.expression(), sb, childPrefix, true, typeMap);
+            }
+            case BinaryExpr b -> {
+                sb.append(prefix).append(connector).append("BinaryExpr: ").append(b.operator()).append(tag).append("\n");
+                toTreeAnnotated(b.left(), sb, childPrefix, false, typeMap);
+                toTreeAnnotated(b.right(), sb, childPrefix, true, typeMap);
+            }
+            case UnaryExpr u -> {
+                sb.append(prefix).append(connector).append("UnaryExpr: ").append(u.operator()).append(tag).append("\n");
+                toTreeAnnotated(u.operand(), sb, childPrefix, true, typeMap);
+            }
+            case FunctionCall c -> {
+                sb.append(prefix).append(connector).append("FunctionCall").append(tag).append("\n");
+                sb.append(childPrefix).append("├── Callee:\n");
+                toTreeAnnotated(c.callee(), sb, childPrefix + "│   ", true, typeMap);
+                if (!c.arguments().isEmpty()) {
+                    sb.append(childPrefix).append("└── Args:\n");
+                    printChildrenA(c.arguments(), sb, childPrefix + "    ", typeMap);
+                }
+            }
+            case MemberAccess m -> {
+                sb.append(prefix).append(connector)
+                  .append("MemberAccess: .").append(m.property()).append(tag).append("\n");
+                toTreeAnnotated(m.object(), sb, childPrefix, true, typeMap);
+            }
+            case IndexAccess i -> {
+                sb.append(prefix).append(connector).append("IndexAccess").append(tag).append("\n");
+                toTreeAnnotated(i.object(), sb, childPrefix, false, typeMap);
+                toTreeAnnotated(i.index(), sb, childPrefix, true, typeMap);
+            }
+            case NumberLiteral n ->
+                sb.append(prefix).append(connector).append("Number: ").append(n.value()).append(tag).append("\n");
+            case StringLiteral s ->
+                sb.append(prefix).append(connector).append("String: ").append(s.value()).append(tag).append("\n");
+            case BooleanLiteral b ->
+                sb.append(prefix).append(connector).append("Boolean: ").append(b.value()).append(tag).append("\n");
+            case NullLiteral ignored ->
+                sb.append(prefix).append(connector).append("Null").append(tag).append("\n");
+            case UndefinedLiteral ignored ->
+                sb.append(prefix).append(connector).append("Undefined").append(tag).append("\n");
+            case Identifier id ->
+                sb.append(prefix).append(connector).append("Id: ").append(id.name()).append(tag).append("\n");
+            case ArrayLiteral a -> {
+                sb.append(prefix).append(connector).append("Array").append(tag).append("\n");
+                printChildrenA(a.elements(), sb, childPrefix, typeMap);
+            }
+            case ObjectLiteral o -> {
+                sb.append(prefix).append(connector).append("Object").append(tag).append("\n");
+                for (int i = 0; i < o.keys().size(); i++) {
+                    boolean last = i == o.keys().size() - 1;
+                    sb.append(childPrefix).append(last ? "└── " : "├── ").append(o.keys().get(i)).append(":\n");
+                    toTreeAnnotated(o.values().get(i), sb, childPrefix + (last ? "    " : "│   "), true, typeMap);
+                }
+            }
+        }
+    }
+
+    private static void printChildrenA(java.util.List<ASTNode> children, StringBuilder sb,
+                                       String prefix, Map<ASTNode, ?> typeMap) {
+        for (int i = 0; i < children.size(); i++) {
+            toTreeAnnotated(children.get(i), sb, prefix, i == children.size() - 1, typeMap);
+        }
     }
 
     private static void toTree(ASTNode node, StringBuilder sb, String prefix, boolean isLast) {
