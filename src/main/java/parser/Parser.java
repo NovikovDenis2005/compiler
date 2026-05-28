@@ -2,6 +2,7 @@ package parser;
 
 import ast.ASTNode;
 import ast.ASTNode.*;
+import diagnostic.Diagnostic;
 import lexer.Token;
 import lexer.TokenType;
 
@@ -27,10 +28,16 @@ public class Parser {
     private final List<Token> tokens;
     private int pos;
     private final List<String> errors = new ArrayList<>();
+    private final List<String> sourceLines;
 
     public Parser(List<Token> tokens) {
+        this(tokens, null);
+    }
+
+    public Parser(List<Token> tokens, List<String> sourceLines) {
         this.tokens = tokens;
         this.pos = 0;
+        this.sourceLines = sourceLines;
     }
 
     public List<String> getErrors() {
@@ -605,8 +612,8 @@ public class Parser {
     /** Создать исключение с сообщением об ошибке */
     private ParseException error(String message) {
         Token t = peek();
-        String full = String.format("[ОШИБКА СИНТАКСИСА] Строка %d:%d -> %s",
-                t.getLine(), t.getColumn(), message);
+        String full = Diagnostic.format("[ОШИБКА СИНТАКСИСА]", message,
+                t.getLine(), t.getColumn(), sourceLines);
         return new ParseException(full);
     }
 

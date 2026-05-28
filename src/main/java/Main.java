@@ -10,6 +10,7 @@ import semantic.SemanticAnalyzer;
 import semantic.SemanticError;
 import semantic.Symbol;
 import transform.AstTransformer;
+import transform.OptimizationStats;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -66,7 +67,7 @@ public class Main {
 
         // ===== 2. Парсер =====
         section("ЭТАП 2: СИНТАКСИЧЕСКИЙ АНАЛИЗ");
-        Parser parser = new Parser(tokens);
+        Parser parser = new Parser(tokens, lexer.getSourceLines());
         ASTNode ast = parser.parseProgram();
         if (!parser.getErrors().isEmpty()) {
             for (String err : parser.getErrors()) System.err.println("  " + err);
@@ -84,7 +85,9 @@ public class Main {
         AnalysisResult res = new SemanticAnalyzer().analyze((ASTNode.Program) ast);
         if (res.hasErrors()) {
             System.out.println("  Найдены семантические ошибки:");
-            for (SemanticError e : res.errors()) System.out.println("  " + e);
+            for (SemanticError e : res.errors()) {
+                System.out.println("  " + e.format(lexer.getSourceLines()));
+            }
             System.out.println("\n  Этапы 4-5 пропущены.");
             return;
         }
@@ -95,9 +98,12 @@ public class Main {
         System.out.println(ASTPrinter.toTreeWithTypes(ast, res.typeMap()));
 
         // ===== 4. Трансформация AST =====
-        section("ЭТАП 4: МОДИФИКАЦИЯ AST (свёртка констант, мёртвые ветки)");
-        ASTNode transformed = AstTransformer.transform(ast);
+        section("ЭТАП 4: ОПТИМИЗАЦИИ AST");
+        OptimizationStats stats = new OptimizationStats();
+        ASTNode transformed = AstTransformer.transform(ast, stats);
         System.out.println(ASTPrinter.toTree(transformed));
+        System.out.println();
+        System.out.print(stats.report());
 
         // ===== 5. Выполнение =====
         section("ЭТАП 5: ВЫПОЛНЕНИЕ");
