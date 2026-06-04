@@ -1,5 +1,7 @@
 package lexer;
 
+import diagnostic.Diagnostic;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -18,6 +20,7 @@ public class Lexer {
     private int line;      // текущая строка (для диагностики)
     private int column;    // текущий столбец
     private final List<String> errors = new ArrayList<>();
+    private final List<String> sourceLines;
 
     /** Таблица ключевых слов */
     private static final Map<String, TokenType> KEYWORDS = new HashMap<>();
@@ -42,9 +45,18 @@ public class Lexer {
 
     public Lexer(String source) {
         this.source = source;
+        this.sourceLines = Diagnostic.splitLines(source);
         this.pos = 0;
         this.line = 1;
         this.column = 1;
+    }
+
+    public List<String> getSourceLines() {
+        return sourceLines;
+    }
+
+    private String diag(String message, int ln, int col) {
+        return Diagnostic.format("[ОШИБКА ЛЕКСЕРА]", message, ln, col, sourceLines);
     }
 
     public List<String> getErrors() {
@@ -132,7 +144,7 @@ public class Lexer {
                 }
             } else if (current() == '\n') {
                 // Незакрытая строка
-                errors.add(String.format("[ОШИБКА ЛЕКСЕРА] Строка %d:%d -> Незакрытый строковый литерал", startLine, startCol));
+                errors.add(diag("Незакрытый строковый литерал", startLine, startCol));
                 return new Token(TokenType.ERROR, sb.toString(), startLine, startCol);
             } else {
                 sb.append(current());
@@ -141,7 +153,7 @@ public class Lexer {
         }
 
         if (pos >= source.length()) {
-            errors.add(String.format("[ОШИБКА ЛЕКСЕРА] Строка %d:%d -> Незакрытый строковый литерал (конец файла)", startLine, startCol));
+            errors.add(diag("Незакрытый строковый литерал (конец файла)", startLine, startCol));
             return new Token(TokenType.ERROR, sb.toString(), startLine, startCol);
         }
 
@@ -222,7 +234,7 @@ public class Lexer {
                     advance();
                     return new Token(TokenType.AND, "&&", startLine, startCol);
                 }
-                errors.add(String.format("[ОШИБКА ЛЕКСЕРА] Строка %d:%d -> Неожиданный символ '&' (ожидалось '&&')", startLine, startCol));
+                errors.add(diag("Неожиданный символ '&' (ожидалось '&&')", startLine, startCol));
                 return new Token(TokenType.ERROR, "&", startLine, startCol);
 
             case '|':
@@ -230,11 +242,11 @@ public class Lexer {
                     advance();
                     return new Token(TokenType.OR, "||", startLine, startCol);
                 }
-                errors.add(String.format("[ОШИБКА ЛЕКСЕРА] Строка %d:%d -> Неожиданный символ '|' (ожидалось '||')", startLine, startCol));
+                errors.add(diag("Неожиданный символ '|' (ожидалось '||')", startLine, startCol));
                 return new Token(TokenType.ERROR, "|", startLine, startCol);
 
             default:
-                errors.add(String.format("[ОШИБКА ЛЕКСЕРА] Строка %d:%d -> Неизвестный символ '%c'", startLine, startCol, c));
+                errors.add(diag(String.format("Неизвестный символ '%c'", c), startLine, startCol));
                 return new Token(TokenType.ERROR, String.valueOf(c), startLine, startCol);
         }
     }
@@ -275,7 +287,7 @@ public class Lexer {
                     advance();
                 }
                 if (pos >= source.length()) {
-                    errors.add(String.format("[ОШИБКА ЛЕКСЕРА] Строка %d:%d -> Незакрытый блочный комментарий", commentLine, commentCol));
+                    errors.add(diag("Незакрытый блочный комментарий", commentLine, commentCol));
                 }
                 continue;
             }

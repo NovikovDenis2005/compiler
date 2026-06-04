@@ -1,0 +1,9 @@
+# сборка
+target/
+*.class
+
+# IDE
+.idea/
+.vs/
+*.iml
+

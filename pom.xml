@@ -10,27 +10,13 @@
     <packaging>jar</packaging>
 
     <name>MiniJS Compiler</name>
-    <description>Компилятор подмножества JavaScript в Java байт-код</description>
+    <description>Компилятор подмножества JavaScript с AST-интерпретатором</description>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
-
-    <dependencies>
-        <!-- ASM для генерации байт-кода (2-я аттестация) -->
-        <dependency>
-            <groupId>org.ow2.asm</groupId>
-            <artifactId>asm</artifactId>
-            <version>9.6</version>
-        </dependency>
-        <dependency>
-            <groupId>org.ow2.asm</groupId>
-            <artifactId>asm-util</artifactId>
-            <version>9.6</version>
-        </dependency>
-    </dependencies>
 
     <build>
         <plugins>

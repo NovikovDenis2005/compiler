@@ -12,6 +12,11 @@ public class Environment {
         this.parent = parent;
     }
 
+    /** Родительский скоуп (для выхода из блочной области в виртуальной машине). */
+    public Environment parent() {
+        return parent;
+    }
+
     public void define(String name, Value v) {
         bindings.put(name, v);
     }
